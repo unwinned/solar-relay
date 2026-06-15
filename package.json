@@ -5,13 +5,16 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cli": "node --env-file=.env src/cli/index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-metrics": "^2.8.0",
     "@solana/kit": "^6.9.0",
     "dotenv": "^17.4.2"
   },
