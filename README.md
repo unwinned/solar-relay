@@ -193,6 +193,42 @@ devnet to confirm `@solana/kit` (web3.js v2.0) actually works end to end.
 entrypoints and aren't unit tested directly, their logic is just wiring together the
 modules above, which are tested.
 
+## Real mainnet run
+
+While testing against mainnet (PublicNode + Helius), Helius started failing on its free
+tier mid-run. Here's what the pool did about it, unedited:
+
+\```
+call 0: blockhash = 4YFxR9sL
+call 1: blockhash = 3yAc3Ru3
+call 2: blockhash = BXH43JpC
+call 3: blockhash = AQgLD5C9
+
+[
+  {
+    label: 'solana-public',
+    url: 'https://solana-rpc.publicnode.com',
+    status: 'healthy',
+    avgLatencyMs: 175.46,
+    consecutiveFailures: 0,
+    cooldownUntil: 0
+  },
+  {
+    label: 'helius',
+    url: 'https://mainnet.helius-rpc.com/?api-key=...',
+    status: 'unhealthy',
+    avgLatencyMs: 0,
+    consecutiveFailures: 3,
+    cooldownUntil: 1781528672116
+  }
+]
+\```
+
+Every call still returned a valid blockhash. `helius` tripped the circuit breaker after 3
+failures and went into cooldown, `solana-public` picked up all the traffic, and
+OpenTelemetry recorded `rpc_failures_total{endpoint="helius"}` alongside the latency
+histogram for `solana-public`. Nothing leaked to the caller, nothing crashed.
+
 ## What's not done yet
 
 - Fee estimation only uses `getRecentPrioritizationFees` right now. A Helius or Triton
