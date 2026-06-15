@@ -1,18 +1,19 @@
 import { createSolanaRpc } from '@solana/kit';
 
 export class RpcPool {
-  constructor(endpointConfigs) {
-    this.endpoints = endpointConfigs.map((config) => ({
-      config,
-      rpc: createSolanaRpc(config.url),
-      health: {
-        status: 'healthy',
-        avgLatencyMs: 0,
-        consecutiveFailures: 0,
-        cooldownUntil: 0,
-      },
-    }));
-  }
+  constructor(endpointConfigs, { telemetry } = {}) {
+      this.telemetry = telemetry ?? createNoopTelemetry();
+      this.endpoints = endpointConfigs.map((config) => ({
+        config,
+        rpc: createSolanaRpc(config.url),
+        health: {
+          status: 'healthy',
+          avgLatencyMs: 0,
+          consecutiveFailures: 0,
+          cooldownUntil: 0,
+        },
+      }));
+    }
 
   pickEndpoint(excludeLabels = new Set()) {
       const now = Date.now();
@@ -30,6 +31,7 @@ export class RpcPool {
     h.avgLatencyMs = h.avgLatencyMs === 0 ? latencyMs : h.avgLatencyMs * 0.7 + latencyMs * 0.3;
     h.consecutiveFailures = 0;
     h.status = 'healthy';
+    this.telemetry.recordLatency(endpoint.config.label, latencyMs);
   }
 
   recordFailure(endpoint) {
@@ -41,6 +43,7 @@ export class RpcPool {
       h.status = 'unhealthy';
     } else {
       h.status = 'degraded';
+      this.telemetry.recordFailure(endpoint.config.label);
     }
   }
 
@@ -81,4 +84,11 @@ function withTimeout(promise, ms) {
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('RPC request timed out')), ms)),
   ]);
+}
+
+function createNoopTelemetry() {
+  return {
+    recordLatency: () => {},
+    recordFailure: () => {},
+  };
 }
