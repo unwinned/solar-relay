@@ -19,6 +19,7 @@
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.9",
     "vitest": "^4.1.9"
   }
 }

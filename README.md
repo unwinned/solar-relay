@@ -33,41 +33,36 @@ you can see what's happening instead of guessing why a transaction got stuck.
 
 ## Project layout
 src/
-config.js         # reads .env, builds the endpoint list
-index.js           # demo entrypoint wiring everything together
-core/rpc-pool.js   # RpcPool: health tracking, selection, fallback, circuit breaker
-fees/estimator.js  # dynamic priority fee estimation with caching
-mev/jito.js        # Jito bundle submission + RPC fallback
-telemetry/otel.js  # OpenTelemetry metrics setup
-wallet/adapter.js  # wallet-adapter -> @solana/kit signer bridge
-cli/               # diagnostics CLI (health-check.js + index.js)
-tests/               # vitest suite (unit + one live integration test)
+config.js         reads .env and builds the list of RPC endpoints
+index.js           demo entrypoint, wires everything together
+core/rpc-pool.js   RpcPool: health tracking, selection, fallback, circuit breaker
+fees/estimator.js  dynamic priority fee estimation with caching
+mev/jito.js        Jito bundle submission with RPC fallback
+telemetry/otel.js  OpenTelemetry metrics setup
+wallet/adapter.js  wallet adapter to @solana/kit signer bridge
+cli/               diagnostics CLI (health-check.js and index.js)
+tests/               vitest suite, mostly unit tests plus one live integration test
 
-## Installation
+## Getting started
 
 ```bash
 git clone <your-repo-url>
 cd solar-relay
 npm install
 cp .env.example .env
-# fill in RPC URLs (see below)
 ```
 
-## Configuration
+Then fill in your RPC URLs in `.env`. solar-relay doesn't care which network you point it
+at, devnet, mainnet, or a mix of providers all work the same way.
 
-`solar-relay` is network-agnostic - point `endpoints` at devnet, mainnet, or a mix of
-providers. `.env.example`:
 SOLANA_PUBLIC_DEVNET_URL=https://api.devnet.solana.com
 HELIUS_DEVNET_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
 ANKR_DEVNET_URL=https://rpc.ankr.com/solana_devnet
 
-For mainnet, swap the URLs for mainnet equivalents (e.g.
-`https://api.mainnet-beta.solana.com`, `https://mainnet.helius-rpc.com/?api-key=...`) -
-no code changes required.
+For mainnet, just swap in mainnet URLs (for example
+`https://api.mainnet-beta.solana.com`). No code changes needed.
 
-## Usage
-
-### RPC pool with fallback
+## Using the RPC pool
 
 ```js
 import { RpcPool } from './src/core/rpc-pool.js';
@@ -79,14 +74,13 @@ const { value } = await pool.execute((rpc) => rpc.getLatestBlockhash().send());
 console.log(value.blockhash);
 
 console.log(pool.getHealthSnapshot());
-// [{ label, status, avgLatencyMs, consecutiveFailures, cooldownUntil }, ...]
 ```
 
-`execute()` tries the healthiest available endpoint, applies a timeout, and falls back to
-the next endpoint on error or timeout. After 3 consecutive failures an endpoint enters an
-exponentially-growing cooldown and is skipped until it expires.
+`execute()` picks the healthiest endpoint, applies a timeout, and retries on the next one
+if something goes wrong. After three failures in a row, an endpoint goes into cooldown
+(with growing backoff) and is skipped until it recovers.
 
-### Priority fee estimation
+## Fee estimation
 
 ```js
 import { createFeeEstimator } from './src/fees/estimator.js';
@@ -95,7 +89,7 @@ const getFee = createFeeEstimator(pool, { percentile: 0.5, cacheTtlMs: 10_000 })
 const { microLamports } = await getFee();
 ```
 
-### Jito/MEV routing with fallback
+## Jito/MEV routing
 
 ```js
 import { sendTransactionViaJitoWithFallback } from './src/mev/jito.js';
@@ -107,24 +101,22 @@ const result = await sendTransactionViaJitoWithFallback({
   pollIntervalMs: 2000,
 });
 
-// result.via === 'jito'         -> bundle landed
-// result.via === 'rpc-fallback' -> bundle didn't land in time / Jito unreachable,
-//                                   transaction sent via the RPC pool instead
+// result.via === 'jito'          the bundle landed
+// result.via === 'rpc-fallback'  it didn't land in time, sent via the RPC pool instead
 ```
 
-**How it works:** the bundle (up to 5 signed transactions) is submitted to the Jito Block
-Engine (`mainnet.block-engine.jito.wtf`). One transaction in the bundle must include a
-transfer of at least 1000 lamports to one of Jito's tip accounts (use `getTipAccounts()` to
-fetch the current list and pick one at random). The bundle status is polled via
-`getBundleStatuses`; if it doesn't confirm within `maxPollAttempts`, the SDK transparently
-falls back to sending the transaction through the resilient RPC pool.
+The bundle goes to Jito's Block Engine at `mainnet.block-engine.jito.wtf`. One of the
+transactions needs a transfer of at least 1000 lamports to one of Jito's tip accounts
+(use `getTipAccounts()` to get the current list and pick one at random). The bundle status
+is checked with `getBundleStatuses`, and if it doesn't confirm in time, the transaction is
+sent through the regular RPC pool instead.
 
-**Important:** Jito's Block Engine is **mainnet-only** - there is no devnet equivalent.
-The module is implemented against the real mainnet API and covered by tests that mock
-`fetch` to simulate bundle confirmation, non-confirmation, and Block Engine unavailability
-(all three trigger the documented behavior above).
+One thing worth saying clearly: Jito's Block Engine only exists on mainnet, there's no
+devnet version. The module is built against the real mainnet API, and the tests cover all
+three outcomes (bundle lands, bundle never lands, Block Engine is unreachable) by mocking
+`fetch`.
 
-### Telemetry (OpenTelemetry / Datadog)
+## Telemetry
 
 ```js
 import { createOtelTelemetry } from './src/telemetry/otel.js';
@@ -133,79 +125,82 @@ import { RpcPool } from './src/core/rpc-pool.js';
 const telemetry = createOtelTelemetry({ serviceName: 'my-dapp' });
 const pool = new RpcPool(endpoints, { telemetry });
 
-// ... later, to flush before exit
+// flush before the process exits
 await telemetry.shutdown();
 ```
 
-Exports two metrics, tagged by `endpoint` label:
-- `rpc_latency_ms` (histogram) - per-request latency on success
-- `rpc_failures_total` (counter) - failures per endpoint
+This records two metrics, both tagged with the endpoint label:
 
-By default this uses `ConsoleMetricExporter`. To export to **Datadog** (or any OTLP
-collector), swap the exporter in `src/telemetry/otel.js`:
+- `rpc_latency_ms`, a histogram of request latency on success
+- `rpc_failures_total`, a counter of failures per endpoint
+
+By default it prints to the console. To send to Datadog or any OTLP collector, swap the
+exporter in `src/telemetry/otel.js`:
 
 ```js
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 const exporter = new OTLPMetricExporter({ url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT });
 ```
 
-The `recordLatency`/`recordFailure` interface - and everything that calls it - stays
-unchanged.
+Everything that calls `recordLatency`/`recordFailure` stays the same.
 
-### Wallet adapter
+## Wallet adapter
 
-Any Wallet Standard wallet (Phantom, Solflare, Backpack, ...) exposes
-`{ publicKey, signTransaction }`. Wrap it into a `@solana/kit`-compatible signer:
+Wallets like Phantom, Solflare and Backpack all expose the same shape through the Wallet
+Standard: `{ publicKey, signTransaction }`. This wraps that into something `@solana/kit`
+can use directly:
 
 ```js
 import { createWalletAdapterSigner } from './src/wallet/adapter.js';
 
-// in a browser app, e.g. with @solana/wallet-adapter-react:
+// in a browser app, e.g. with @solana/wallet-adapter-react
 const signer = createWalletAdapterSigner(wallet.adapter);
-// signer.address and signer.modifyAndSignTransactions(...) are now Kit-compatible
+// signer.address and signer.modifyAndSignTransactions(...) now work with @solana/kit
 ```
 
-### Diagnostics CLI
+## CLI
 
 ```bash
-npm run cli                  # live health dashboard, refreshes every 3s
-npm run cli -- <signature>   # also polls and prints the status of a given transaction
+npm run cli                  # live health dashboard, refreshes every 3 seconds
+npm run cli -- <signature>   # also polls and shows the status of a transaction
 ```
 
 Shows endpoint health (status, latency, failures, cooldown), the current fee estimate, and
-a rolling log of recent health checks.
+a short history of recent health checks.
 
 ## Testing
 
 ```bash
-npm test                      # 16 tests
-npx vitest run --coverage     # coverage report
+npm test
+npx vitest run --coverage
 ```
 
-**Coverage: 92% statements** (threshold: 90%). All resilience logic is covered by tests
-that simulate real-world failure modes without touching the network:
+16 tests, 92% statement coverage (the bar was 90%). The resilience logic is tested by
+simulating failure modes without touching the network:
 
-- endpoint failure → fallback to a healthy endpoint
-- endpoint timeout → fallback
-- all endpoints failing → clear error
-- repeated failures → circuit breaker / cooldown
-- Jito bundle confirms / never lands / Block Engine unreachable → all three fallback paths
-- telemetry hooks fire correctly on success and failure
+- one endpoint fails, the request falls back to a healthy one
+- one endpoint times out, same thing
+- all endpoints fail, you get a clear error
+- repeated failures trip the circuit breaker and put the endpoint in cooldown
+- Jito bundle lands, never lands, or the Block Engine is unreachable, all three fall back
+  correctly
+- telemetry hooks fire on both success and failure
 
-One integration test (`tests/kit-compat.test.js`) makes a real call against Solana devnet
-to verify `@solana/kit` (web3.js v2.0) compatibility end-to-end.
+There's also one real integration test (`tests/kit-compat.test.js`) that hits Solana
+devnet to confirm `@solana/kit` (web3.js v2.0) actually works end to end.
 
-`src/index.js`, `src/cli/index.js`, `src/config.js`, and `src/telemetry/otel.js` are thin
-entrypoints/glue and are intentionally excluded from unit coverage - their logic is
-exercised via the modules above.
+`src/index.js`, `src/cli/index.js`, `src/config.js` and `src/telemetry/otel.js` are thin
+entrypoints and aren't unit tested directly, their logic is just wiring together the
+modules above, which are tested.
 
-## Known limitations / roadmap
+## What's not done yet
 
-- Fee estimation currently uses on-chain `getRecentPrioritizationFees`; a Helius/Triton
-  Priority Fee API source could be added as an additional estimator.
-- Jito routing is implemented and tested via mocked Block Engine responses (mainnet-only
-  infrastructure); a funded mainnet wallet would allow a live end-to-end bundle test.
-- Wallet adapter is tested against a Wallet Standard-shaped mock; a browser/React example
-  app would allow live Phantom testing.
-- Default config targets Solana devnet for safe, free development; switch `endpoints` in
-  `.env` to mainnet URLs for production use.
+- Fee estimation only uses `getRecentPrioritizationFees` right now. A Helius or Triton
+  priority fee API could be added as a second source.
+- Jito routing is tested against mocked Block Engine responses. A funded mainnet wallet
+  would let this run as a real end to end test.
+- The wallet adapter is tested against a mock with the same shape as a real wallet. A
+  small React example app would let it run against actual Phantom.
+- Defaults point at devnet so it's free and safe to run. Switch the URLs in `.env` to
+  mainnet for production use.
+
