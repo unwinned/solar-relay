@@ -59,8 +59,28 @@ SOLANA_PUBLIC_DEVNET_URL=https://api.devnet.solana.com
 HELIUS_DEVNET_URL=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
 ANKR_DEVNET_URL=https://rpc.ankr.com/solana_devnet
 
-For mainnet, just swap in mainnet URLs (for example
-`https://api.mainnet-beta.solana.com`). No code changes needed.
+For mainnet, swap the URLs for mainnet equivalents. No code changes needed, just different
+config.
+
+### Quick mainnet setup
+
+A config that works out of the box (we tested this):
+
+\```
+SOLANA_PUBLIC_DEVNET_URL=https://solana-rpc.publicnode.com
+HELIUS_DEVNET_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+ANKR_DEVNET_URL=
+\```
+
+- `solana-rpc.publicnode.com` works without any signup
+- Helius needs a free API key from helius.dev (about a minute to get one)
+- Leave the third variable empty, `config.js` filters out endpoints with no URL, so the
+  pool just runs with two endpoints
+
+Worth noting: `api.mainnet-beta.solana.com` and Ankr's free tier both rejected our
+requests when we tried this (see "Real mainnet run" below). That's not a bug in
+solar-relay, those providers just aren't meant for this kind of traffic, and the pool
+handled it exactly as it should.
 
 ## Using the RPC pool
 
