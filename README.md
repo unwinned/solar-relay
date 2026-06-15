@@ -229,6 +229,28 @@ failures and went into cooldown, `solana-public` picked up all the traffic, and
 OpenTelemetry recorded `rpc_failures_total{endpoint="helius"}` alongside the latency
 histogram for `solana-public`. Nothing leaked to the caller, nothing crashed.
 
+## Real signed transaction (mainnet)
+
+To prove the whole pipeline works end to end, not just RPC reads,
+`scripts/mainnet-smoke-test.js` builds, signs, and sends a real transaction through the
+resilient pool using `@solana/kit`: a self-transfer of 1000 lamports (costs only the
+network fee, ~5000 lamports).
+
+\```
+Wallet address: Du5qmHP8jfm8JqRAKkT9jqmdHF9sufrjhfVKsfoZ6a4m
+Signature: 4nNDfz3WyLYRuAitgF7pooMqe7Yen31wDnVBz6jjdmHYmZnqyqBsTPSoBYQnnZGaae4BF3WmFiYt9z9NncAiVAky
+Sent! https://explorer.solana.com/tx/4nNDfz3WyLYRuAitgF7pooMqe7Yen31wDnVBz6jjdmHYmZnqyqBsTPSoBYQnnZGaae4BF3WmFiYt9z9NncAiVAky
+Check 0: confirmed
+\```
+
+Run it yourself:
+
+\```bash
+node scripts/generate-wallet.js   # prints a fresh address + secret key
+# fund the address with ~0.02 SOL, then add the secret key to .env as MAINNET_WALLET_SECRET_KEY
+node --env-file=.env scripts/mainnet-smoke-test.js
+\```
+
 ## What's not done yet
 
 - Fee estimation only uses `getRecentPrioritizationFees` right now. A Helius or Triton
